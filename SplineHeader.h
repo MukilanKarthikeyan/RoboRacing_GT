@@ -18,6 +18,7 @@ vector<sPoint2D> pointReader(string inputFileName) {
             coords.push_back(temp);
         }
     }
+	coords.pop_back();
     return coords;
 }
 void outPoints(string fileName, vector<sPoint2D> points) {

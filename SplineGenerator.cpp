@@ -13,6 +13,9 @@ int main() {
     float stepSize = 0.1, fTrackWidth = 10;
     sPoint2D interCoord, gradientCoord, gradientCoordUnNormd;
     for (float i = 0;i < coords.size(); i += stepSize) {
+        if (i >= 35.6) {
+            cout << i << endl;
+        }
         interCoord = splineGen.GetSplinePoint(i);
         gradientCoord = splineGen.GetSplineGradient(i);
         float glen = sqrtf(gradientCoord.x * gradientCoord.x + gradientCoord.y * gradientCoord.y);
