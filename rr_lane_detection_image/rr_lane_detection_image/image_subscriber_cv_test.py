@@ -18,6 +18,28 @@ subscriberNodeName='image_raw_lane_detector_subscriber'
 
 topicName='camera/color/image_raw' 
 
+topLeft = [0, 0]
+topRight = [0, 0]
+bottomLeft = [0, 0]
+bottomRight = [0, 0]
+left = False
+right = False
+
+def click_event(event, x, y, flags, param):
+    if event == cv2.EVENT_LBUTTONDOWN:
+        print("topLeft: ", x, y)
+        topLeft = [x,y]
+    if event == cv2.EVENT_RBUTTONDOWN:
+        print("topRight: ", x, y)
+        topRight = [x,y]
+    if event == cv2.EVENT_LBUTTONUP:
+        print("bottomLeft: ", x, y)
+        bottomLeft = [x,y]
+        left = True
+    if event == cv2.EVENT_RBUTTONUP:
+        print("bottomRight: ", x, y)
+        bottomRight = [x,y]
+        right = True
 
 
 
@@ -31,7 +53,7 @@ def imageToGrayscale(inputImage):
     canny = cv2.Cany(blur, 40, 60)
     return gray, thresh, blur, canny
 
-def processsImage(inputImage):
+def processsImage(inputImage, show = False):
     #converts image to hls color range
     hls = cv2.cvtColor(inputImage, cv2.COLOR_BGR2HLS)
     #ajust lower white range based on light
@@ -46,19 +68,42 @@ def processsImage(inputImage):
     ret, thresh = cv2.threshold(gray, 160, 255, cv2.THRESH_BINARY)
     blur = cv2.GaussianBlur(thresh, (3,3), 0)
     canny = cv2.Canny(blur, 40, 60)
-
-    cv2.imshow("Image", inputImage)
-    cv2.imshow("hls filter", hls_result)
-    cv2.imshow("grayscale", gray)
-    cv2.imshow("threshholed image", thresh)
-    cv2.imshow("blured image", blur)
-    cv2.imshow("canny edge", canny)
+    if (show):
+        cv2.imshow("Image", inputImage)
+        cv2.imshow("hls filter", hls_result)
+        cv2.imshow("grayscale", gray)
+        cv2.imshow("threshholed image", thresh)
+        cv2.imshow("blured image", blur)
+        cv2.imshow("canny edge", canny)
     return inputImage, hls_result, gray, thresh, blur, canny
 
 
+def prespectiveWarp(inputImage, show = False):
+    imgSize = (inputImage.shape[1], inputImage.shape[0])
+    width = imgSize[0]
+    height = imgSize[1]
 
 
 
+    
+    #define point to be warped
+    src = np.float32([[280,260],[420, 260], [10, 470], [630, 480]])
+
+    #define window to be shown
+    # height should be height of window
+    dst = np.float32([[0,0],[640, 0], [0, 480], [640, 480]])
+
+    matrix = cv2.getPerspectiveTransform(src, dst)
+    mat_inv = cv2.getPerspectiveTransform(dst, src)
+    
+    birdseveyView = cv2.warpPerspective(inputImage, matrix, imgSize)
+    birdseveyViewLeft = birdseveyView[0 : height, 0 : width // 2]
+    birdseveyViewRight = birdseveyView[0 : height, width // 2 : width]
+    if (show):
+        cv2.imshow('Birdseye', birdseveyView)
+        #cv2.imshow('BirdseyeLeft', birdseveyViewLeft)
+        #cv2.imshow('BirdseyeRight', birdseveyViewRight)
+    return birdseveyView, birdseveyViewLeft, birdseveyViewRight, mat_inv
 
 class ImageSubscriber(Node):
     def __init__(self):
@@ -71,13 +116,17 @@ class ImageSubscriber(Node):
 
     def listner_callback(self, message):
         bridgeObject = CvBridge()
-        #frameCount += 1
-        #self.get_logger().info("recived a video frame %d" % frameCount )
-        self.get_logger().info("recived a video frame")
-        converted_CV_frame = bridgeObject.imgmsg_to_cv2(message)
-        processsImage(converted_CV_frame)
+        #self.get_logger().info("recived a video frame")
+        converted_CV_frame = bridgeObject.imgmsg_to_cv2(message, desired_encoding='bgr8')
         cv2.imshow("camera", converted_CV_frame)
+        cv2.setMouseCallback('camera', click_event)
 
+
+        #self.get_logger().info("height: %d" % converted_CV_frame.shape[1])
+        #self.get_logger().info("width: %d" % converted_CV_frame.shape[0])
+        #processsImage(converted_CV_frame)
+        prespectiveWarp(converted_CV_frame, show = True)
+        
         cv2.waitKey(1)
 
 
