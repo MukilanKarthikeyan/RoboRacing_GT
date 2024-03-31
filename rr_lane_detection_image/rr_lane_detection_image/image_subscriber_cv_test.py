@@ -3,6 +3,7 @@
 import rclpy 
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+
 import cv2
 from cv_bridge import CvBridge
 import numpy as np
@@ -105,6 +106,97 @@ def prespectiveWarp(inputImage, show = False):
         #cv2.imshow('BirdseyeRight', birdseveyViewRight)
     return birdseveyView, birdseveyViewLeft, birdseveyViewRight, mat_inv
 
+
+
+def plotHistorgram(inputImage):
+    #sum the columns (first axis) form the bottom half of the image
+    histogram = np.sum(inputImage[inputImage.shape[0] // 2 :, :], axis = 0)
+
+
+def slide_window_search(inputImage):
+    height_y = inputImage.shape[0]
+    histogram = np.sum(inputImage[height_y // 2 :, :], axis = 0)
+
+    out_img = np.dstack((inputImage, inputImage,inputImage)) * 255
+    midpoint = histogram.shap[0] // 2
+    left_x_base = np.argmax(histogram[:midpoint])
+    right_x_base = np.argmax(histogram[midpoint:]) + midpoint
+
+    nwindows = 10
+    window_height = height_y // nwindows
+    nonzero = inputImage.nonzero()
+    nonzero_y = np.array(nonzero[0])
+    nonzero_x = np.array(nonzero[1])
+    left_x_curr = left_x_base
+    right_x_curr = right_x_base
+    margin = 100
+    minmun_pixel = 50
+    left_lane_indx = []
+    right_lane_indx = []
+
+
+    for window in range(nwindows):
+        window_y_low = height_y - (window + 1) * window_height
+        window_y_high = height_y - window * window_height # window_y_low = window_height
+
+        window_xleft_low = left_x_curr - margin
+        window_xleft_high = left_x_curr + margin
+
+        window_xright_low = right_x_curr - margin
+        window_xright_high = right_x_curr + margin
+
+
+        #NEED TO UNDERSTAND WHAT THIS DOES
+        good_left_indx = ((nonzero_y >= window_y_low) & (nonzero_y < window_y_high) &
+        (nonzero_x >= window_xleft_low) &  (nonzero_x < window_xleft_high)).nonzero()[0]
+        
+        good_right_indx = ((nonzero_y >= window_y_low) & (nonzero_y < window_y_high) &
+        (nonzero_x >= window_xright_low) &  (nonzero_x < window_xright_high)).nonzero()[0]
+
+
+        left_lane_indx.append(good_left_indx)
+        right_lane_indx.append(right_lane_indx)
+
+        if len(good_left_indx) > minmun_pixel:
+            left_x_curr = int(np.mean(nonzero[good_left_indx]))
+        if len(good_right_indx) > minmun_pixel:
+            right_x_curr = int(np.mean(nonzero[good_right_indx]))
+
+    left_lane_indx = np.concatenate(left_lane_indx)
+    right_lane_indx = np.concatenate(right_lane_indx)
+
+    leftx = nonzero_x[left_lane_indx]
+    lefty = nonzero_y[left_lane_indx]
+
+    rightx = nonzero_x[right_lane_indx]
+    righty = nonzero_y[right_lane_indx]
+
+    left_fit = np.polyfit(lefty, leftx, 2)
+    right_fit = np.polyfit(righty, rightx, 2)
+
+    ploty = np.linspace(0, inputImage.shape[0]-1, inputImage.shape[0])
+    left_fitx = left_fit[0] * ploty**2 + left_fit[1] * ploty + left_fit[2]
+    right_fitx = right_fit[0] * ploty**2 + right_fit[1] * ploty + right_fit[2]
+
+    ltx = np.trunc(left_fitx)
+    rtx = np.trunc(right_fitx)
+    plt.plot(right_fitx)
+    # plt.show()
+
+    out_img[nonzero_y[left_lane_indx], nonzero_x[left_lane_indx]] = [255, 0, 0]
+    out_img[nonzero_y[right_lane_indx], nonzero_x[right_lane_indx]] = [0, 0, 255]
+
+    # plt.imshow(out_img)
+    plt.plot(left_fitx,  ploty, color = 'yellow')
+    plt.plot(right_fitx, ploty, color = 'yellow')
+    plt.xlim(0, 1280)
+    plt.ylim(720, 0)
+
+    return ploty, left_fit, right_fit, ltx, rtx
+
+
+
+
 class ImageSubscriber(Node):
     def __init__(self):
         super().__init__('image_subscriber')
@@ -127,6 +219,21 @@ class ImageSubscriber(Node):
         #processsImage(converted_CV_frame)
         prespectiveWarp(converted_CV_frame, show = True)
         
+        bird_view = prespectiveWarp(converted_CV_frame)
+        img, hls, grayscale, threshold, blur, canny = processsImage(bird_view)
+
+        histogram, left_base, right_base = plotHistorgram(threshold)
+
+        ploty, left_fit, right_fit, left_fitx, right_fitx = slide_window_search(threshold, histogram)
+
+
+        draw_info = general_search(threshold, left_fit, right_fit)
+        curveRadius, curveDirection = measure_lane_curvature(ployt, left_fitx, right_fitx)
+        avgPoints, result =  draw_lane_lines(frame, threshold, minverse, draw_info)
+        deviation, directionDev = calcOffCenter(avgPoints, frame)
+        finalImage = addText(result, curveRad, curveDirection, deviation, direction_dev)
+        cv2.imshow("final", finalImage)
+
         cv2.waitKey(1)
 
 
