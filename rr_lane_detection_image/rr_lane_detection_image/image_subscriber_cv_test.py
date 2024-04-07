@@ -84,9 +84,6 @@ def prespectiveWarp(inputImage, show = False):
     width = imgSize[0]
     height = imgSize[1]
 
-
-
-    
     #define point to be warped
     src = np.float32([[280,260],[420, 260], [10, 470], [630, 480]])
 
@@ -155,7 +152,7 @@ def slide_window_search(inputImage):
 
 
         left_lane_indx.append(good_left_indx)
-        right_lane_indx.append(right_lane_indx)
+        right_lane_indx.append(good_right_indx)
 
         if len(good_left_indx) > minmun_pixel:
             left_x_curr = int(np.mean(nonzero[good_left_indx]))
@@ -173,6 +170,8 @@ def slide_window_search(inputImage):
 
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
+    print(left_fit)
+    print(right_fit)
 
     ploty = np.linspace(0, inputImage.shape[0]-1, inputImage.shape[0])
     left_fitx = left_fit[0] * ploty**2 + left_fit[1] * ploty + left_fit[2]
@@ -197,6 +196,100 @@ def slide_window_search(inputImage):
 
 
 
+def general_search(inputImage, left_fit, right_fit):
+    nonzero = inputImage.nonzero()
+    nonzeroy = np.array(nonzero[0])
+    nonzerox = np.array(nonzero[1])
+    margin = 100
+    left_lane_inds = ((nonzerox > (left_fit[0]*(nonzeroy**2) + left_fit[1]*nonzeroy + left_fit[2] - margin)) & (nonzerox < (left_fit[0]*(nonzeroy**2) + left_fit[1]*nonzeroy + left_fit[2] + margin)))
+    
+    right_lane_inds = ((nonzerox > (right_fit[0]*(nonzeroy**2) + right_fit[1]*nonzeroy + right_fit[2] - margin)) & (nonzerox < (right_fit[0]*(nonzeroy**2) + right_fit[1]*nonzeroy + right_fit[2] + margin)))
+
+
+    leftx = nonzerox[left_lane_inds]
+    lefty = nonzeroy[left_lane_inds]
+    rightx = nonzerox[right_lane_inds]
+    righty = nonzeroy[right_lane_inds]
+
+    left_fit = np.polyfit(lefty, leftx, 2)
+    right_fit = np.polyfit(righty, rightx, 2)
+    ploty = np.linspace(0, inputImage.shape[0] - 1, inputImage.shape[0])
+    left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+    right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+
+    ret = {}
+    ret['leftx'] = leftx
+    ret['rightx'] = rightx
+    ret['left_fitx'] = left_fitx
+    ret['right_fitx'] = right_fitx
+    ret['ploty'] = ploty
+    return ret
+
+def measure_lane_curvature(ploty, leftx, rightx):
+    leftx = leftx[::-1]
+    rightx = rightx[::-1]
+    y_eval = np.max(ploty)
+    
+    left_fit_cr = np.polyfit(ploty*ym_per_pix, leftx*xm_per_pix, 2)
+    right_fit_cr = np.polyfit(ploty*ym_per_pix, rightx*xm_per_pix, 2)
+
+
+    left_curve = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
+    right_curve = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
+    mid_curve = (left_curve + right_curve) / 2.0
+
+    if leftx[0] - leftx[-1] > 60:
+        curveDir = -1 #left
+    elif leftx[0] - leftx[-1] < -60:
+        curveDir = 1 #right
+    else:
+        curveDir = 0
+        
+    return mid_curve, curveDir
+
+def calcOffCenter(meanPts, inpFrame):
+    mpts = meanPts[-1][-1][-2].astype(int)
+    pixelDeviation = inpFrame.shape[1]/2 - abs(mpts)
+    deviation = pixelDeviation * xm_per_pix
+    dir = -1 if deviation < 0 else 0
+    return deviation, dir
+
+def addText(img, radius, direction, deviation, devDirection):
+    font = cv2.FONT_HERSHEY_COMPLEX
+    
+    text = 'Radius Of curve: ' + '{:04.0f}'.format(radius)
+    text1 = 'Curve Dir ' + (direction)
+
+    cv2.putText(img, text , (50,100), font, 0.8, (0,100, 200), 2, cv2.LINE_AA)
+    cv2.putText(img, text1, (50,150), font, 0.8, (0,100, 200), 2, cv2.LINE_AA)
+    deviation_text = 'off center: ' + str(round(abs(deviation), 3)) + ' dir: ' + devDirection
+    cv2.putText(img, deviation_text, (50, 200), cv2.FONT_HERSHEY_TRIPLEX, 0.8, (0,100, 200), 2, cv2.LINE_AA)
+    return img
+
+def draw_lane_lines(orginal_image, warped_image, Minv, draw_info):
+    leftx = draw_info['leftx']
+    rightx = draw_info['rightx']
+    left_fitx = draw_info['left_fitx']
+    right_fitx = draw_info['right_fitx']
+    ploty = draw_info['ploty']
+
+    warp_zero = np.zeros_like(warped_image).astype(np.uint8)
+    color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+
+    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+    pts = np.htsack((pts_left, pts_right))
+
+    meanx = np.mean((left_fitx, right_fitx), axis = 0)
+    pts_mean = np.array([np.flipud(np.transpose(np.vstack([meanx, ploty])))])
+    
+    cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
+    cv2.fillPoly(color_warp, np.int_([pts_mean]), (0, 255, 255))
+
+    newwarp = cv2.warpPerspective(color_warp, Minv, (orginal_image[1], orginal_image[0]))
+    result = cv2.addWeighted(orginal_image, 1, newwarp, 0.3, 0)
+    return pts_mean, result
+
 class ImageSubscriber(Node):
     def __init__(self):
         super().__init__('image_subscriber')
@@ -219,7 +312,7 @@ class ImageSubscriber(Node):
         #processsImage(converted_CV_frame)
         prespectiveWarp(converted_CV_frame, show = True)
         
-        bird_view = prespectiveWarp(converted_CV_frame)
+        bird_view, bvl, bvr, minverse= prespectiveWarp(converted_CV_frame)
         img, hls, grayscale, threshold, blur, canny = processsImage(bird_view)
 
         histogram, left_base, right_base = plotHistorgram(threshold)
@@ -228,10 +321,10 @@ class ImageSubscriber(Node):
 
 
         draw_info = general_search(threshold, left_fit, right_fit)
-        curveRadius, curveDirection = measure_lane_curvature(ployt, left_fitx, right_fitx)
-        avgPoints, result =  draw_lane_lines(frame, threshold, minverse, draw_info)
-        deviation, directionDev = calcOffCenter(avgPoints, frame)
-        finalImage = addText(result, curveRad, curveDirection, deviation, direction_dev)
+        curveRadius, curveDirection = measure_lane_curvature(ploty, left_fitx, right_fitx)
+        avgPoints, result =  draw_lane_lines(converted_CV_frame, threshold, minverse, draw_info)
+        deviation, directionDev = calcOffCenter(avgPoints, converted_CV_frame)
+        finalImage = addText(result, curveRadius, curveDirection, deviation, directionDev)
         cv2.imshow("final", finalImage)
 
         cv2.waitKey(1)
